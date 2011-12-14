@@ -641,22 +641,22 @@ if (m/^(\s*)         # we hope the inclusion starts the line
     # the latter part is for "use base qw(Foo)" and friends special case
     \s*($modver_re|(qw\s*[(\/'"]\s*|['"])[^)\/"'\$]*?\s*[)\/"'])?
     /x)
-  ) {
- my ($whitespace, $statement, $module, $version) = ($1, $2, $3, $4);
+) {
+my ($whitespace, $statement, $module, $version) = ($1, $2, $3, $4);
 
- # we only consider require statements that are flushed against
- # the left edge. any other require statements give too many
- # false positives, as they are usually inside of an if statement
- # as a fallback module or a rarely used option
- ($whitespace ne "" && $statement eq "require") && next;
+# we only consider require statements that are flushed against
+# the left edge. any other require statements give too many
+# false positives, as they are usually inside of an if statement
+# as a fallback module or a rarely used option
+($whitespace ne "" && $statement eq "require") && next;
 
- # skip if the phrase was "use of" -- shows up in gimp-perl, et al.
- next if $module eq 'of';
+# skip if the phrase was "use of" -- shows up in gimp-perl, et al.
+next if $module eq 'of';
 \end{verbatim}
 Как видно, регулярное выражение нельзя назвать простым.  Кроме того, регулярного выражения оказывается недостаточно.
 Язык perl характеризуется очень сложным синтаксисом~--- неоднородной системой кавычек и ограничителей, многострочными
 литералами here-documents, наконец, встроенной документацией POD.  Не случайно последняя проверка в приведенном фрагменте
-<<отсеивает>> типичное вхождения слова use в предоложения английского языка (в дальнейшем выполняется еще несколько
+<<отсеивает>> типичное вхождение слова use в предоложения английского языка (в дальнейшем выполняется еще несколько
 похожих проверок).  Обращает на себя внимание и первая проверка: она оставляет только строки без отступа (а строки с отступом
 считаются условными конструкциями).  Однако отступы в языке perl не являются значащами.  Кроме того, уровень вложенности
 не всегда означает условную конструкцию, как в следующем типичном примере:
@@ -696,8 +696,8 @@ $ perl -MO=Concise -e 'require Foo; print 1'
 -e syntax OK
 \end{verbatim}
 
-Дерево опкодов сохраняет всю важную информацию об исходном коде (в том числе, например, номера строк;
-но не сохраняет отступы и комментарии).  Модуль \verb|B::Deparse| позволяет реконструировать исходный код:
+Дерево опкодов сохраняет всю важную информацию об исходном коде.
+Модуль \verb|B::Deparse| позволяет реконструировать исходный код:
 \begin{verbatim}
 $ perl -MO=Deparse -e 'require Foo; print 1'
 require Foo;
@@ -713,6 +713,47 @@ $ perl -MO=PerlReq -e 'require Foo; print 1'
 perl(Foo.pm)
 -e syntax OK
 \end{verbatim}
+
+Основным источником зависимостей в дереве опкодов являются опкоды \verb|require|, которые соответствуют
+непосредственным вызовам функции \verb|require| и инструкциям \verb|use|.  Однако к образованию зависимостей
+могут приводить и некоторые другие конструкции.  Например, версионирование зависимостей осуществляется
+с помощью вызова статического метода \verb|VERSION|: инструкция вида
+\begin{verbatim}
+use Module 1.0 qw(list);
+\end{verbatim}
+на самом деле <<раскрывается>> в код
+\begin{verbatim}
+BEGIN {
+    require Module;
+    Module->VERSION(1.0);
+    Module->import(list);
+}
+\end{verbatim}
+Поэтому в модуле \verb|B::PerlReq| в качестве общего случая реализован анализ вызовов функций
+и статических методов (в том числе выполняется реконструкция константных аргументов).  Это
+позволяет обнаруживать отложенную загрузку модулей вида
+\begin{verbatim}
+use autouse Foo => qw(bar baz);
+\end{verbatim}
+за счет обработки вызова статического метода \verb|autouse->import|:
+\begin{verbatim}
+$ perl -MO=PerlReq -e 'use autouse Foo => qw(bar baz)'
+perl(autouse.pm)
+perl(Foo.pm)
+-e syntax OK
+\end{verbatim}
+
+Анализ вызова функций и статических методов позволяет обнаружить довольно сложные способы образования
+зависимостей.  Например, в следующих двух случаях
+\begin{verbatim}
+open $fh, ">", \$var;
+IO::File->new(\$var, "w");
+\end{verbatim}
+при открытии файла вместо имени файла передается ссылка на переменную \verb|$var|.
+В таких случаях доступ к файлу на диске заменяется доступом к содержимому переменной \verb|$var| (т.\,н. in-memory files).
+Примитивы доступа к таким псевдофайлам реализованы в модуле \verb|PerlIO::scalar|, который загружается интерпретатором
+по мере необходимости.  Соответствено, при обнаружении подобных конструкций модуль \verb|B::PerlReq| порождает зависимость
+на \verb|perl(PerlIO/scalar.pm)|.
 
 \subsection{Макросы и автоматизация сборки}
 \label{perl-macros}
