@@ -625,6 +625,54 @@ fi
 
 \subsection{Анализатор зависимостей perl.req}
 
+Загрузка модулей в языке perl выполняется с помощью функции \verb|require| или
+инструкции \verb|use| (которая сводится к вызову функции \verb|require|).
+В традиционной реализации скрипт \verb|perl.req| с помощью регулярного
+выражения ищет строки, которые начинаются со слов \verb|require| или \verb|use|,
+и выполняет дальнейший разбор этих строк.
+
+Рассмотрим фрагмент традиционной реализации \verb|perl.req|.
+\begin{verbatim}
+if (m/^(\s*)         # we hope the inclusion starts the line
+    (require|use)\s+(?!\{)     # do not want 'do {' loops
+    # quotes around name are always legal
+    ['"]?([^; '"\t#]+)['"]?[\t; ]
+    # the syntax for 'use' allows version requirements
+    # the latter part is for "use base qw(Foo)" and friends special case
+    \s*($modver_re|(qw\s*[(\/'"]\s*|['"])[^)\/"'\$]*?\s*[)\/"'])?
+    /x)
+  ) {
+ my ($whitespace, $statement, $module, $version) = ($1, $2, $3, $4);
+
+ # we only consider require statements that are flushed against
+ # the left edge. any other require statements give too many
+ # false positives, as they are usually inside of an if statement
+ # as a fallback module or a rarely used option
+ ($whitespace ne "" && $statement eq "require") && next;
+
+ # skip if the phrase was "use of" -- shows up in gimp-perl, et al.
+ next if $module eq 'of';
+\end{verbatim}
+Как видно, регулярное выражение нельзя назвать простым.  Кроме того, регулярного выражения оказывается недостаточно.
+Язык perl характеризуется очень сложным синтаксисом~--- неоднородной системой кавычек и ограничителей, многострочными
+литералами here-documents, наконец, встроенной документацией POD.  Не случайно последняя проверка в приведенном фрагменте
+<<отсеивает>> типичное вхождения слова use в предоложения английского языка (в дальнейшем выполняется еще несколько
+похожих проверок).  Обращает на себя внимание и первая проверка: она оставляет только строки без отступа (а строки с отступом
+считаются условными конструкциями).  Однако отступы в языке perl не являются значащами.  Кроме того, уровень вложенности
+не всегда означает условную конструкцию, как в следующем типичном примере:
+\begin{verbatim}
+BEGIN {
+  use Exporter;
+  @EXPORT = qw(foo bar);
+}
+\end{verbatim}
+Следует также отметить, что инструкции \verb|use| выполняются всегда (на стадии загрузки кода),
+и поэтому понятие условных конструкций к ним не относится.
+
+Таким образом, разбор кода на языке perl с помощью регулярных выражений нельзя считать надежным подходом.
+Вообще, как говорят хакеры, <<Only perl can parse perl>>, т.\,е. надежный разбор кода на языке perl
+может быть выполнен только средствами самого интерпретатора perl.
+
 \subsection{Макросы и автоматизация сборки}
 \label{perl-macros}
 
